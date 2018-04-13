@@ -21,6 +21,8 @@ path=r"C:\Users\Jack\Documents\Uni\GDP\Drop Tests\\"
 1667 g start and length is [179, 655, 1069], 71
 """
 
+theta = 360/30 # degrees per pulse
+
 d_o = 0.138/(((0.29996/2))**2 - 20*0.002**2 - 0.04**2)
 d_i = 0.283/((0.288/2000)**2 - 20*0.002**2 - 0.04**2)
 J_h = 20*(0.002**4) + 28*(0.002**2)*(0.137**2) + 12*(0.002**2)*(0.059**2) + (0.080)**4
@@ -64,14 +66,17 @@ def combine(data, start, length):
     return s/len(start)
     
 
-def plot_three(times, D1, D2, pc=False, p=False):
+def plot_three(times, pc=False, p=False):
     """plots the three sensors individually. accepts offsets of each sensor to
     account for non-identical pulse angles\n"""
     theta = 360/30 # degrees per pulse
     data = times/10**6
+    #print(data[0])
     data -= data[0]
+    #print(data[0])
     a_t = data*np.append(np.tile([1, 0, 0], int(len(data)/3)), [1, 0, 0][:len(data)%3])
-    a_t = a_t[np.nonzero(a_t)]
+    a_t = np.append(np.array([0]), a_t[np.nonzero(a_t)])
+    #print(a_t)
     a_A = np.linspace(0, theta*len(a_t), len(a_t), endpoint=False)
     a_w = (a_A[1:]-a_A[:-1])/(a_t[1:]-a_t[:-1])
     #plt.plot(a_t[:-1], a_w)
@@ -96,37 +101,74 @@ def plot_three(times, D1, D2, pc=False, p=False):
     alpha = (a_w[1:]-a_w[:-1])/(a_t[2:]-a_t[:-2])
     
     if p is True:
-        #plt.plot(a_t[:-1], a_w)
-        #plt.plot(b_t[:-1], b_w)
-        #plt.plot(c_t[:-1], c_w)
+        plt.plot(a_t[:-1], a_w)
+        plt.plot(b_t[:-1], b_w)
+        plt.plot(c_t[:-1], c_w)
         #plt.plot(a_t[:-2], alpha)
         #plt.scatter(b_t, b_A)
         #plt.scatter(c_t, c_A)
-        #peaks = signal.find_peaks_cwt(a_w, [0.05, 0.5, 1], gap_thresh=0)
-        #plt.scatter(a_t[peaks], a_w[peaks])
+    lens = [len(a_A), len(c_A), len(b_A)]
+    length = min(lens)
     
+    a_data = np.vstack([a_t[:length], a_A[:length]])
+    b_data = np.vstack([b_t[:length], b_A[:length]])
+    c_data = np.vstack([c_t[:length], c_A[:length]])
+    return a_data, b_data, c_data
+    
+def combine_three(data, D1, D2, sav=[13, 2], p=False):
+    """recombines the three data streams from plot_three() into 1 stream"""
+    a_data, b_data, c_data = data
+    a_t, a_A = a_data
+    b_t, b_A = b_data
+    c_t, c_A = c_data
     lens = [len(a_A), len(c_A), len(b_A)]
     length = min(lens)
     
     #D1, D2 = find_D(data, [a_A, b_A, c_A])
     #D2 = find_D(data, [a_A, b_A, c_A])[1]
     A = np.stack([a_A[:length], b_A[:length]+D1+theta/3., c_A[:length]+D2+2*theta/3.]).flatten('F')
-    T = data[:len(A)]
+    T = np.stack([a_t, b_t, c_t]).flatten('F')
     W = (A[1:]-A[:-1])/(T[1:]-T[:-1])
     #plt.plot(T, A)
     if p is True:
         plt.plot(T[:-1], W)
-    filt_W = signal.savgol_filter(W, 13, 2)
-    if pc is True:
+    #filt_W = signal.savgol_filter(W, sav[0], sav[1], mode="nearest")
+    filt_times, filt_W = interp(data,W=True)
+    if p is True:
         plt.plot(T[:-1], W)
-        plt.plot(T[:-1], filt_W)
+        plt.plot(filt_times, filt_W)
     #print(D1,"\t", D2, "\t", np.sum((W-filt_W)**2))
-    return np.sum((W-filt_W)**2)
+    return np.sum((W[3:-3]-filt_W)**2)
     A = np.stack([a_A[:length], b_A[:length]+theta/3., c_A[:length]+2*theta/3.]).flatten('F')
-    T = data[:len(A)]
     W = (A[1:]-A[:-1])/(T[1:]-T[:-1])
     #plt.plot(T[:-1], W)
     
+def interp(dataset, W=True, p=False):
+    """combines the sensor data through interpolation\n
+    dataset should be a list of numpy arrays, where each array has the form 
+    [[times], [angles]]"""
+    if type(dataset[0]) is tuple:
+        dataset = dataset[0]
+    n = len(dataset)
+    newtimes = np.array([])
+    for i in dataset:
+        newtimes = np.append(newtimes, i[0])
+    newtimes.sort()
+    newtimes = newtimes[n:-n]
+    average = np.zeros(len(newtimes))
+    for i in dataset:
+        average += (interpolate.interp1d(i[0], i[1])(newtimes))
+    average = average/n
+    if W is True:
+        w = (average[1:]-average[:-1])/(newtimes[1:]-newtimes[:-1])
+        if p is True:
+            plt.plot(newtimes[:-1], w)
+        return newtimes[:-1], w
+    if p is True:
+        plt.plot(newtimes, average)
+    return newtimes, average
+    
+
 
 def find_D(times, angles):
     """finds the d (the pulse offset value) by minimizing n_peaks.\n
@@ -193,23 +235,13 @@ def square_filt_d(param, t, dummy, sav=[11, 2]):
     filt_W = signal.savgol_filter(W, sav[0], sav[1])
     return np.sum((W-filt_W)**2)
 
-def interp(times, angles, theta=360/90):
-    """combines the sensor data through interpolation, so that the time
-    increments in microseconds"""
-    lens = []
-    zero = data[0][0]
-    for i in times:
-        i-=zero
-        lens.append(i[-1])
-    length = min(lens)
-    step = data[0][1]
 
-
-def brute_force(data, tol=360/30, it=9, res=10**6):
+def brute_force(data, tol=360/30, it=None, res=10**6):
     """a brute force algorithm that optimises plot three./n
     this has to exist because multi-dimensional scipy doesn't work for shit"""
     N=5
-    it = 1+int(log(res, N)) # auto-range the iterations.
+    if it is None:
+        it = 1+int(log(res, N)) # auto-range the iterations.
     print("Number of iterations:\t", it)
     D1_l = -tol
     D1_h = tol
@@ -225,7 +257,7 @@ def brute_force(data, tol=360/30, it=9, res=10**6):
         while i < N:
             j=0
             while j<N:
-                r = plot_three(data, D1_list[i], D2_list[j])
+                r = combine_three(plot_three(data), D1_list[i], D2_list[j])
                 res[i, j] +=  r
                 #print(D1_list[i], "\t", D2_list[j], "\t", r)
                 j+=1
@@ -236,10 +268,10 @@ def brute_force(data, tol=360/30, it=9, res=10**6):
             #    min_vals[i] = res[i][min_pos[0]]
             #mins = res
         min_value = res.min()
-        print(min_value)
+        #print(min_value)
         min_pos = np.argwhere((res==min_value))[0]
-        print(res)
-        print(min_pos)
+        #print(res)
+        #print(min_pos)
         D1_l = D1_list[min_pos[0]-1]
         D1_h = D1_list[min_pos[0]+1]
         D2_l = D2_list[min_pos[1]-1]
