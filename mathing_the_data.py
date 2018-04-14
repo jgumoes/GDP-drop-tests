@@ -13,18 +13,19 @@ from lmfit import minimize, Parameters, report_fit
 from math import log as log
 
 path=r"C:\Users\Jack\Documents\Uni\GDP\Drop Tests" + "\\"
-"""575 g start and length is [167, 625, 1020], 77 (200 for full test)
-        savgol parameters are 11, 3
+"""575 g start and length is [167, 167+77], [625, 625+77], [1020, 1020+77],
+    77 (200 for full test)
+    savgol parameters are 11, 3
 
 1100 g start and length is [201, 633, 1086], 71
 
 1667 g start and length is [179, 655, 1069], 71
 
-free spinning.txt starts and ends: [64: 2614], [2685: 4810], [4849: 6011]
-[6036: 7562], [7589: 9312], [9349: 10838], [10865: 13506], [12529: 14346]
-[14371: 15475], [15493: 16533], [16549: 18044], [18073: 19331], [19340: 19767]
-[19995: 21476], [21497: 22764], [22781: 23865], [23888: 24971], [24990: 26291]
-[26341: 29501]
+free spinning.txt starts and ends: [64: 2613],[2685: 4809], [4849: 6010]
+[6045: 7561], [7589: 9311], [9349: 10837], [10858: 12505], [12529: 14345]
+[14371: 15474], [15493: 16532], [16549: 18043], [18073: 19331], [19340: 19977]
+[19995: 21478], [21500: 22763], [22781: 23864], [23888: 24970], [24990: 26291]
+[26349: 29501]
     
 usage procedure:
 -raw_data() to import the data
@@ -36,7 +37,15 @@ usage procedure:
 -combine_three(alpha=False) to get each optimised chunk. use the output of
     break_three() and the D values found in brute_force(). Set filt=True to
     return the interpolation-filtered values
+
+to convert conditioned data chunks to files:
+    alldata = raw_data(path)[0]; c=0
+    ind = np.array([[lower, upper]....])
     
+    while c < len(ind):
+        res = plot_opt(alldata[ind[c][0]: ind[c][1]])
+        np.save(path+"1667\\%i" % (c), res)
+        c+=1
 """
 
 theta = 360/30 # degrees per pulse
@@ -77,22 +86,23 @@ def plot_angle(data, show_t=True, theta=360/90):
     #plt.plot(times)
     
 
-def break_three(times, pc=False, p=False):
+def break_three(times, p=False, trim=False):
     """breaks the combined data into each individual sensor\n
     tries to optimise the angle between edges (i.e. account for magnetic threshold)"""
     theta = 360/30 # degrees per pulse
     data = times/10**6
     #print(data[0])
     data -= data[0]
-    #print(data[0])
+    #print(len(data))
     a_t = data*np.append(np.tile([1, 0, 0], int(len(data)/3)), [1, 0, 0][:len(data)%3])
     a_t = np.append(np.array([0]), a_t[np.nonzero(a_t)])
-    #print(a_t)
+    #print(len(a_t))
     a_A = np.linspace(0, theta*len(a_t), len(a_t), endpoint=False)
     a_w = (a_A[1:]-a_A[:-1])/(a_t[1:]-a_t[:-1])
     #plt.plot(a_t[:-1], a_w)
     da = find_d(a_t)
     a_A += da*theta*np.append(np.tile([1, -1], int(len(a_t)/2)), [1][:len(a_t)%2])
+    a_A -= da*theta
     a_w = (a_A[1:]-a_A[:-1])/(a_t[1:]-a_t[:-1])
     
     b_t = data*np.append(np.tile([0, 1, 0], int(len(data)/3)), [0, 1, 0][:len(data)%3])
@@ -100,6 +110,7 @@ def break_three(times, pc=False, p=False):
     b_A = np.linspace(0, theta*len(b_t), len(b_t), endpoint=False)
     db = find_d(b_t)
     b_A += db*theta*np.append(np.tile([1, -1], int(len(b_t)/2)), [1][:len(b_t)%2])
+    b_A -= da*theta
     b_w = (b_A[1:]-b_A[:-1])/(b_t[1:]-b_t[:-1])
     
     c_t = data*np.append(np.tile([0, 0, 1], int(len(data)/3)), [0, 0, 1][:len(data)%3])
@@ -107,6 +118,7 @@ def break_three(times, pc=False, p=False):
     c_A = np.linspace(0, theta*len(c_t), len(c_t), endpoint=False)
     dc = find_d(c_t)
     c_A += dc*theta*np.append(np.tile([1, -1], int(len(c_t)/2)), [1][:len(c_t)%2])
+    c_A -= da*theta
     c_w = (c_A[1:]-c_A[:-1])/(c_t[1:]-c_t[:-1])
     
     alpha = (a_w[1:]-a_w[:-1])/(a_t[2:]-a_t[:-2])
@@ -118,12 +130,17 @@ def break_three(times, pc=False, p=False):
         #plt.plot(a_t[:-2], alpha)
         #plt.scatter(b_t, b_A)
         #plt.scatter(c_t, c_A)
-    lens = [len(a_A), len(c_A), len(b_A)]
-    length = min(lens)
-    
-    a_data = np.vstack([a_t[:length], a_A[:length]])
-    b_data = np.vstack([b_t[:length], b_A[:length]])
-    c_data = np.vstack([c_t[:length], c_A[:length]])
+    if trim is True:
+        lens = [len(a_A), len(c_A), len(b_A)]
+        length = min(lens)
+        
+        a_data = np.vstack([a_t[:length], a_A[:length]])
+        b_data = np.vstack([b_t[:length], b_A[:length]])
+        c_data = np.vstack([c_t[:length], c_A[:length]])
+    else:
+        a_data = np.vstack([a_t, a_A])
+        b_data = np.vstack([b_t, b_A])
+        c_data = np.vstack([c_t, c_A])
     return a_data, b_data, c_data
     
 def combine_three(data, D1, D2, sav=[13, 2], p=False, alpha=True, filt=False):
@@ -132,11 +149,20 @@ def combine_three(data, D1, D2, sav=[13, 2], p=False, alpha=True, filt=False):
     a_t, a_A = a_data
     b_t, b_A = b_data
     c_t, c_A = c_data
-    lens = [len(a_A), len(c_A), len(b_A)]
-    length = min(lens)
+    #lens = [len(a_A), len(c_A), len(b_A)]
+    #length = min(lens)
+    end = None
+    if len(a_t) > len(c_t):
+        c_t = np.append(c_t, c_t[-1]+1)
+        c_A = np.append(c_A, c_A[-1]+1)
+        end = -1
+    if len(a_t) > len(b_t):
+        b_t = np.append(b_t, b_t[-1]+1)
+        b_A = np.append(b_A, b_A[-1]+1)
+        end = -2
     
-    A = np.stack([a_A[:length], b_A[:length]+D1+theta/3., c_A[:length]+D2+2*theta/3.]).flatten('F')
-    T = np.stack([a_t, b_t, c_t]).flatten('F')
+    A = np.stack([a_A, b_A+D1+theta/3., c_A+D2+2*theta/3.]).flatten('F')[:end]
+    T = np.stack([a_t, b_t, c_t]).flatten('F')[:end]
     W = (A[1:]-A[:-1])/(T[1:]-T[:-1])
     #plt.plot(T, A)
     if p is True:
@@ -157,12 +183,12 @@ def combine_three(data, D1, D2, sav=[13, 2], p=False, alpha=True, filt=False):
     #print(D1,"\t", D2, "\t", np.sum((W-filt_W)**2))
     #return np.sum((W[3:-3]-filt_W)**2)
     if filt is True:
-        return interp(data, alpha=False, W=False)
+        return T, interp(data, alpha=False, W=False)
     if alpha is True:
         return np.sum((a-filt_a)**2)
-    return T, A, np.sum((W-filt_a)**2)
+    return T, A
     
-def interp(dataset, alpha=True, W=True, p=False):
+def interp(dataset, alpha=True, W=True, p=False, tail=False):
     """combines the sensor data through interpolation\n
     dataset should be a list of numpy arrays, where each array has the form 
     [[times], [angles]]"""
@@ -173,14 +199,70 @@ def interp(dataset, alpha=True, W=True, p=False):
     for i in dataset:
         newtimes = np.append(newtimes, i[0])
     newtimes.sort()
-    newtimes = newtimes[n:-n]
+    if tail is not False:
+        tailtimes_s = newtimes[:n]
+        tailtimes_e = newtimes[-n:]
+    #print(newtimes[:5])
+    #print(tailtimes_s, "\t", tailtimes_e)
+    newtimes = newtimes[n-1:1-n]
     average = np.zeros(len(newtimes))
     for i in dataset:
         average += (interpolate.interp1d(i[0], i[1])(newtimes))
+        #print(i[0][1], "\t", i[1][1])
     average = average/n
+        
+    
+    if tail == "start" or tail =="both":
+        int_dict = {}
+        c = 0
+        for i in dataset:
+            int_dict["%i" % c] = interpolate.interp1d(i[0][:2], i[1][:2])
+            c+=1
+        c = 0
+        s_r = np.zeros(n)
+        for s in tailtimes_s:
+            n = 0
+            ic = 0
+            #print(s)
+            for i in dataset:
+                if i[0][0] <= s:
+                    s_r[c] += int_dict["%i" % ic](s)
+                    #print(s_r[c])
+                    n+=1
+                ic += 1
+            s_r[c] = s_r[c]/n
+            c+=1
+        #print(s_r)
+        average[0] = (s_r[-1]+average[0])/2
+        average = np.append(s_r[:-1], average)
+        newtimes = np.append(tailtimes_s[:-1], newtimes)
+    
+    if tail == "end" or tail =="both":
+        int_dict = {}
+        c = 0
+        for i in dataset:
+            int_dict["%i" % c] = interpolate.interp1d(i[0][-2:], i[1][-2:])
+            c+=1
+        c = 0
+        e_r = np.zeros(n)
+        for e in tailtimes_e:
+            n = 0
+            ic = 0
+            for i in dataset:
+                if i[0][-1] >= e:
+                    e_r[c] += int_dict["%i" % ic](e)
+                    n+=1
+                ic += 1
+            e_r[c] = e_r[c]/n
+            c+=1
+        average[-1] = (e_r[0]+average[-1])/2
+        average = np.append(average, e_r[-2:])
+        newtimes = np.append(newtimes, tailtimes_e[1:])
+
     w = (average[1:]-average[:-1])/(newtimes[1:]-newtimes[:-1])
     w_times = newtimes[:-1]
     a = (w[1:]-w[:-1])/(w_times[1:]-w_times[:-1])
+    
     if alpha is True:
         if p is True:
             plt.plot(w_times[:-1], a)
@@ -253,6 +335,13 @@ def brute_force(data, tol=360/30, it=None, res=10**6):
         D2_l = D2_list[min_pos[1]-1]
         D2_h = D2_list[min_pos[1]+1]
     return min_value, min_pos, D1_list[min_pos[0]], D2_list[min_pos[1]]
+
+def plot_opt(data, alpha=False):
+    """a function to help optimise chunk size. it accepts a chunk of data,
+    breaks, optimises and recombines, and plots the result, all in one step"""
+    D1, D2 = brute_force(data)[-2:]
+    res = combine_three(break_three(data), D1, D2, p=True, alpha=alpha, filt=False)
+    return res
 
 def combine(data, start, length):
     """combines the data from the trials into one\n
