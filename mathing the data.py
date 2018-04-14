@@ -12,7 +12,7 @@ import scipy.interpolate as interpolate
 from lmfit import minimize, Parameters, report_fit
 from math import log as log
 
-path=r"C:\Users\Jack\Documents\Uni\GDP\Drop Tests\\"
+path=r"C:\Users\Jack\Documents\Uni\GDP\Drop Tests" + "\\"
 """575 g start and length is [167, 625, 1020], 77 (200 for full test)
         savgol parameters are 11, 3
 
@@ -20,10 +20,16 @@ path=r"C:\Users\Jack\Documents\Uni\GDP\Drop Tests\\"
 
 1667 g start and length is [179, 655, 1069], 71
 
+free spinning.txt starts and ends: [64: 2614], [2685: 4810], [4849: 6011]
+[6036: 7562], [7589: 9312], [9349: 10838], [10865: 13506], [12529: 14346]
+[14371: 15475], [15493: 16533], [16549: 18044], [18073: 19331], [19340: 19767]
+[19995: 21476], [21497: 22764], [22781: 23865], [23888: 24971], [24990: 26291]
+[26341: 29501]
+    
 usage procedure:
     raw_data() to import the data
     plot_angle() to see where to trim the data (only keep the sharp accelerations)
-    
+    break_three() for each chunk of data
 """
 
 theta = 360/30 # degrees per pulse
@@ -42,10 +48,10 @@ def raw_data(path):
     except SyntaxError:
         path = "%r" % path # stops the character escapes from happening
     file = np.loadtxt(path)
-    mass = int((path.split("\\")[-1].split()[0]))
+    mass = (path.split("\\")[-1].split()[0])
     return file, mass
 
-def plot_angle(data, theta=360/90):
+def plot_angle(data, show_t=True, theta=360/90):
     """plots the angle against time. doesn't account for reverse motion"""
     times = data/10**6
     times-=times[0]
@@ -54,25 +60,19 @@ def plot_angle(data, theta=360/90):
     filt_vel = signal.savgol_filter(vel, 11, 3)
     a_times = times[1:-1]
     accel = (filt_vel[1:]-filt_vel[:-1])/(times[2:]-times[:-2])
-    plt.plot(times[:-1], vel)
-    peaks = signal.find_peaks_cwt(vel, [0.05, 0.5, 1, 1.5, 2], gap_thresh=0, min_length=0.2)
-    plt.scatter(times[peaks], vel[peaks])
-    #plt.plot(times[:-1], filt_vel)
-    #plt.plot(vel)
+    if show_t is True:
+        plt.plot(times[:-1], vel)
+        plt.scatter(times[:-1], vel)
+        #plt.plot(times[:-1], filt_vel)
+    else:
+        plt.plot(vel)
     #plt.plot(a_times, accel)
     #plt.plot(times)
-
-def combine(data, start, length):
-    """combines the data from the trials into one"""
-    s = np.zeros(length)
-    for i in start:
-        s+=data[i:i+length]
-    return s/len(start)
     
 
-def plot_three(times, pc=False, p=False):
-    """plots the three sensors individually. accepts offsets of each sensor to
-    account for non-identical pulse angles\n"""
+def break_three(times, pc=False, p=False):
+    """breaks the combined data into each individual sensor\n
+    tries to optimise the angle between edges (i.e. account for magnetic threshold)"""
     theta = 360/30 # degrees per pulse
     data = times/10**6
     #print(data[0])
@@ -120,7 +120,7 @@ def plot_three(times, pc=False, p=False):
     return a_data, b_data, c_data
     
 def combine_three(data, D1, D2, sav=[13, 2], p=False, alpha=True):
-    """recombines the three data streams from plot_three() into 1 stream"""
+    """recombines the three data streams from break_three() into 1 stream"""
     a_data, b_data, c_data = data
     a_t, a_A = a_data
     b_t, b_A = b_data
@@ -233,7 +233,7 @@ def brute_force(data, tol=360/30, it=None, res=10**6):
         while i < N:
             j=0
             while j<N:
-                r = combine_three(plot_three(data), D1_list[i], D2_list[j])
+                r = combine_three(break_three(data), D1_list[i], D2_list[j])
                 res[i, j] +=  r
                 j+=1
             i+=1
@@ -244,6 +244,14 @@ def brute_force(data, tol=360/30, it=None, res=10**6):
         D2_l = D2_list[min_pos[1]-1]
         D2_h = D2_list[min_pos[1]+1]
     return min_value, min_pos, D1_list[min_pos[0]], D2_list[min_pos[1]]
+
+def combine(data, start, length):
+    """combines the data from the trials into one\n
+    this is poorly implemented and might not actually be used"""
+    s = np.zeros(length)
+    for i in start:
+        s+=data[i:i+length]
+    return s/len(start)
 
 #data1 = combine(raw_data(path+"575 g.txt")[0], [167, 625, 1020], 71)
 #data2 = combine(raw_data(path+"1100 g.txt")[0], [201, 633, 1086], 71)
