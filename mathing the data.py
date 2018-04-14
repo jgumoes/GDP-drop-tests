@@ -27,9 +27,16 @@ free spinning.txt starts and ends: [64: 2614], [2685: 4810], [4849: 6011]
 [26341: 29501]
     
 usage procedure:
-    raw_data() to import the data
-    plot_angle() to see where to trim the data (only keep the sharp accelerations)
-    break_three() for each chunk of data
+-raw_data() to import the data
+-plot_angle() to see where to trim the data (only keep the sharp accelerations)
+-break_three() on each chunk of data to break the data into each individual sensor
+-brute_force() using the output of break_three() for each data chunk to optimise
+    the spacing between each sensor (this accounts for the sensors not having
+    identical spacing)
+-combine_three(alpha=False) to get each optimised chunk. use the output of
+    break_three() and the D values found in brute_force(). Set filt=True to
+    return the interpolation-filtered values
+    
 """
 
 theta = 360/30 # degrees per pulse
@@ -119,7 +126,7 @@ def break_three(times, pc=False, p=False):
     c_data = np.vstack([c_t[:length], c_A[:length]])
     return a_data, b_data, c_data
     
-def combine_three(data, D1, D2, sav=[13, 2], p=False, alpha=True):
+def combine_three(data, D1, D2, sav=[13, 2], p=False, alpha=True, filt=False):
     """recombines the three data streams from break_three() into 1 stream"""
     a_data, b_data, c_data = data
     a_t, a_A = a_data
@@ -149,6 +156,8 @@ def combine_three(data, D1, D2, sav=[13, 2], p=False, alpha=True):
         #plt.plot(filt_times[:-1], filt_a)
     #print(D1,"\t", D2, "\t", np.sum((W-filt_W)**2))
     #return np.sum((W[3:-3]-filt_W)**2)
+    if filt is True:
+        return interp(data, alpha=False, W=False)
     if alpha is True:
         return np.sum((a-filt_a)**2)
     return T, A, np.sum((W-filt_a)**2)
