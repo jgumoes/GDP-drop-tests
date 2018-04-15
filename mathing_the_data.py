@@ -9,7 +9,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy import signal
 import scipy.interpolate as interpolate
-from lmfit import minimize, Parameters, report_fit
+from lmfit import minimize, Parameters
 from math import log as log
 
 path=r"C:\Users\Jack\Documents\Uni\GDP\Drop Tests" + "\\"
@@ -49,14 +49,6 @@ to convert conditioned data chunks to files:
 """
 
 theta = 360/30 # degrees per pulse
-
-d_o = 0.138/(((0.29996/2))**2 - 20*0.002**2 - 0.04**2)
-d_i = 0.283/((0.288/2000)**2 - 20*0.002**2 - 0.04**2)
-J_h = 20*(0.002**4) + 28*(0.002**2)*(0.137**2) + 12*(0.002**2)*(0.059**2) + (0.080)**4
-J_o = d_o/2 * ((0.29996/2)**4 - J_h)
-J_i = d_o/2 * ((0.288/2)**4 - J_h)
-J_b = 0.061/40 * (14*(0.137**2) + 6*(0.059**2))
-J_A = J_o*2 + J_i + J_b     #moment of inertia for the testing wheel
 
 def raw_data(path):
     try:
