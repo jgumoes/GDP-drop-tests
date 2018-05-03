@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 from numba import jit
 import scipy.interpolate as interpolate
 import scipy.optimize as op
+from scipy import signal
 
 #from mathing_the_data import *
 
@@ -195,7 +196,7 @@ def tik_data_w(params, f, dt, As):
     return a*np.sum(np.abs(du)) + np.sum(L2)/2
 
 @jit(parallel=True)
-def tik_diff(data, a=0.5):
+def tik_diff(data, a=0.0005):
     """performs differentiation on the data using Tikhonov regularization.\n
     minimizing function comes from https://www.hindawi.com/journals/isrn/2011/164564/#B16"""
     t = data[0]
@@ -205,12 +206,57 @@ def tik_diff(data, a=0.5):
     t = (t+0.4999).astype(int)
     f = data[1]
     f -= f[0]
-    dt = (t[1:] - t[:-1])*10**6
+    dt = (t[1:] - t[:-1]) /(10**6)
     u0 = (f[1:] - f[:-1])/dt
     params = np.append(a, u0)
     bounds = [(0, None)] + [(None, None)]*len(u0)
-    A = np.tril(np.ones((len(t)-1, len(t)-2)))
-    minim = op.minimize(tik_data_w, params, args=(f, dt, A), bounds=bounds, options={'maxiter': 10**6, 'maxfun': 10**6})
+    As = np.tril(np.ones((len(t)-1, len(t)-2)))
+    minim = op.minimize(tik_data_w, params, args=(f, dt, As), bounds=bounds, options={'maxiter': 10**6, 'maxfun': 10**6})
+    return minim
+
+@jit(parallel=True)
+def butt_w(params, f, u, As, dt):
+    """worker function for diff_butt()"""
+    cut, init = params
+    b, a = signal.butter(1, cut, btype="low")
+    filt = signal.lfilter(b, a, u-init) + init
+    du = (filt[1:] - filt[:-1])/(dt[:-1])
+    A_w = (filt[1:] + filt[:-1])*dt[:-1]/2
+    #Au = np.dot(As, A_w)
+    Au = np.zeros(len(f)-1)
+    for i in range(len(Au)):
+        Au[i] = np.sum(A_w[:i+1])
+    f = signal.lfilter(b, a, f-f[0]) + f[0]
+    L2 = (Au - f[1:])**2
+    return np.sum(np.abs(du)) + np.sum(L2)
+
+@jit(parallel=True)
+def diff_butt(data, cut0=10**-3):
+    """tries to apply an optimum low-pass filter to the differentiated data.
+    works under the assumption that, since differentiating has a transfer function
+    G(s) = s, applying F(s) = 1/s will smooth out the magnified noise."""
+    t = data[0]
+    t -= t[0]
+    if np.average(t[1:]-t[:-1]) < 0.9:
+        t*=1000000
+    t = (t+0.4999).astype(int)
+    f = data[1]
+    dt = (t[1:] - t[:-1]) #/(10**6)
+    u_old = (f[1:11]-f[0:10])/dt[0:10]
+    u_old = (f[1:]-f[:-1])/dt
+    u0 = np.average(u_old)
+    mr = np.max(np.abs(u_old-u0))*2
+    bounds = [(10**-6, 1 - 10**-6), (u0-mr, u0+mr)]
+    params = np.append(cut0, u0)
+    
+    t_new = np.arange(0, t[-1]+1)
+    interp = interpolate.interp1d(t, f)
+    dt_new = np.ones(len(t_new)-1) #/(10**6)
+    f_new = interp(t_new)
+    #As = np.tril(np.ones((len(t_new)-1, len(t_new)-2)))
+    As=None
+    u_new = (f_new[1:]-f_new[:-1])/dt_new
+    minim = op.minimize(butt_w, params, args=(f_new, u_new, As, dt_new), bounds=bounds)
     return minim
 
 # =============================================================================
