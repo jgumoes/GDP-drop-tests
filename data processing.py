@@ -9,8 +9,9 @@ import lmfit as lm
 import matplotlib.pyplot as plt
 from numba import jit
 import scipy.interpolate as interpolate
+import scipy.optimize as op
 
-from mathing_the_data import *
+#from mathing_the_data import *
 
 path=r"C:\Users\Jack\Documents\Uni\GDP\Drop Tests" + "\\"
 file = r"C:\Users\Jack\Documents\Uni\GDP\Drop Tests\0\0.npy"
@@ -95,7 +96,7 @@ def fit_theta_free(data):
 @jit
 def solve_w(t, k1, k2, mu3, n, j, m, w0=0, res=10, plot=False):
     """differentiates the acceleration equation to find w(t).\n
-    uses euler's method to sub-microsecond precision.\n
+    uses euler's method to sub-microsecond precision (1us/res).\n
     res is the number of points between each microsecond"""
     times = t
     times -= times[0]
@@ -112,9 +113,20 @@ def solve_w(t, k1, k2, mu3, n, j, m, w0=0, res=10, plot=False):
         ind+=1
         #if (ind>100000) and (ind%100000 == 0):
         #    print(ind)
+    np.save(np.array(times_out, w_out), "w, euler forwards, res=%d" % res)
     if plot is True:
         plt.plot(times_out, w_out)
         
+def make_th_simple(t, k1, k2, mu3, n, j, m, w0=0, res=100):
+    """finds theta by taking the second derivative of negative acceleration 
+    using eulers method. uses constant-mass simplification for the long 
+    free-spinning tests.\n
+    t should be in microseconds"""
+    times = np.append(0, np.linspace(0, t, t*res))
+    thetas = np.zeros(t*res + 1)
+    p = 0
+    #while p<
+    
     
 
 def find_w(t, a, end=False, plot=False):
@@ -165,3 +177,77 @@ def make_ja():
     J_A = J_o*2 + J_i + J_b     #moment of inertia for the testing wheel
 
 make_ja()
+
+@jit(parallel=True, nopython=True)
+def tik_data_w(params, f, dt, As):
+    """worker function for tik_diff.
+    params[0] should be alpha"""
+    a = params[0]
+    u = params[1:]
+    #dt = t[1:] - t[:-1]
+    du = (u[1:] - u[:-1])/(dt[:-1])
+    A_w = (u[1:] + u[:-1])*dt[:-1]/2
+    Au = np.dot(As, A_w) # Au(x) is the integral of u between 0 and x
+    #Au = np.zeros(len(f)-1)
+    #for i in range(len(Au)):
+    #    Au[i] = np.sum(A_w[:i+1])
+    L2 = (Au - f[1:])**2
+    return a*np.sum(np.abs(du)) + np.sum(L2)/2
+
+@jit(parallel=True)
+def tik_diff(data, a=0.5):
+    """performs differentiation on the data using Tikhonov regularization.\n
+    minimizing function comes from https://www.hindawi.com/journals/isrn/2011/164564/#B16"""
+    t = data[0]
+    t -= t[0]
+    if np.average(t[1:]-t[:-1]) < 0.9:
+        t*=1000000
+    t = (t+0.4999).astype(int)
+    f = data[1]
+    f -= f[0]
+    dt = (t[1:] - t[:-1])*10**6
+    u0 = (f[1:] - f[:-1])/dt
+    params = np.append(a, u0)
+    bounds = [(0, None)] + [(None, None)]*len(u0)
+    A = np.tril(np.ones((len(t)-1, len(t)-2)))
+    minim = op.minimize(tik_data_w, params, args=(f, dt, A), bounds=bounds, options={'maxiter': 10**6, 'maxfun': 10**6})
+    return minim
+
+# =============================================================================
+# @jit(parallel=True, nopython=True)
+# def tik_data_w(params, f):
+#     """worker function for tik_diff.
+#     params[0] should be alpha"""
+#     a = params[0]
+#     u = params[1:]
+#     du = u[1:] - u[:-1]
+#     A_w = u[1:] + u[:-1]
+#     Au = np.zeros(len(f)-1)
+#     for i in range(len(Au)):
+#         Au[i] = np.sum(A_w[:i+1])/2
+#     L2 = (Au - f[1:])**2
+#     return a*np.sum(np.abs(du)) + np.sum(L2)/2
+# 
+# @jit(parallel=True)
+# def tik_diff(data, a=0.5):
+#     """performs differentiation on the data using Tikhonov regularization.\n
+#     minimizing function comes from https://www.hindawi.com/journals/isrn/2011/164564/#B16"""
+#     t_old = data[0]
+#     t_old -= t_old[0]
+#     t_old = (t_old+0.4999).astype(int)
+#     if np.average(t_old[1:]-t_old[:-1]) < 0.9:
+#         t_old*=1000000
+#     th = data[1]
+#     t = np.arange(0, t_old[-1]+1)
+#     interp = interpolate.interp1d(t_old, th)
+#     f = interp(t) - th[0]
+#     u0 = f[1:] - f[:-1]
+#     params = np.append(a, u0)
+#     bounds = [(0, None)] + [(None, None)]*len(u0)
+#     minim = op.minimize(tik_data_w, params, args=(f), bounds=bounds)
+#     return minim
+# =============================================================================
+    
+    
+    
+    
