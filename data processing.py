@@ -11,9 +11,8 @@ from numba import jit
 import scipy.interpolate as interpolate
 import scipy.optimize as op
 from scipy import signal
-from platypus import NSGAII, Problem, Real
 
-#from mathing_the_data import *
+
 
 path=r"C:\Users\Jack\Documents\Uni\GDP\Drop Tests" + "\\"
 file = r"C:\Users\Jack\Documents\Uni\GDP\Drop Tests\0\0.npy"
@@ -180,133 +179,18 @@ def make_ja():
 
 make_ja()
 
-@jit(parallel=True, nopython=True)
-def tik_data_w(params, f, dt, As):
-    """worker function for tik_diff.
-    params[0] should be alpha"""
-    a = params[0]
-    u = params[1:]
-    #dt = t[1:] - t[:-1]
-    du = (u[1:] - u[:-1])/(dt[:-1])
-    A_w = (u[1:] + u[:-1])*dt[:-1]/2
-    Au = np.dot(As, A_w) # Au(x) is the integral of u between 0 and x
-    #Au = np.zeros(len(f)-1)
-    #for i in range(len(Au)):
-    #    Au[i] = np.sum(A_w[:i+1])
-    L2 = (Au - f[1:])**2
-    return a*np.sum(np.abs(du)) + np.sum(L2)/2
 
-@jit(parallel=True)
-def tik_diff(data, a=0.0005):
-    """performs differentiation on the data using Tikhonov regularization.\n
-    minimizing function comes from https://www.hindawi.com/journals/isrn/2011/164564/#B16"""
-    t = data[0]
-    t -= t[0]
-    if np.average(t[1:]-t[:-1]) < 0.9:
-        t*=1000000
-    t = (t+0.4999).astype(int)
-    f = data[1]
-    f -= f[0]
-    dt = (t[1:] - t[:-1]) /(10**6)
-    u0 = (f[1:] - f[:-1])/dt
-    params = np.append(a, u0)
-    bounds = [(0, None)] + [(None, None)]*len(u0)
-    As = np.tril(np.ones((len(t)-1, len(t)-2)))
-    minim = op.minimize(tik_data_w, params, args=(f, dt, As), bounds=bounds, options={'maxiter': 10**6, 'maxfun': 10**6})
-    return minim
 
-#@jit(parallel=True)
-def PD_w(params, args):#f, u, du, As, dt):
-    """worker function for diff_butt()"""
-    f, u, du, dt, As, L = args
-    alpha = params
-    alpha *= 10**-6
-    #y = P*u[1:] - D*du
-    y = np.zeros(len(du)+1)
-    y[0] = u[0]
-    del_u = du
-    du = du/dt[:-1]
-    for i in np.arange(0, len(du)):
-        y[i+1] = y[i] + del_u[i]*np.exp(-alpha*du[i])#/alpha
-    A_w = (y[1:] + y[:-1])*dt[:-1]/2
-    Au = np.dot(As, A_w)
-    dy = (y[1:] - y[:-1])/(dt[:-1])
-    Au = np.zeros(len(f)-1)
-    for i in range(len(Au)):
-        Au[i] = np.sum(A_w[:i+1])
-    L2 = (Au - f[1:])**2
-    return L*np.sum(dy**2) + np.sum(L2)
-    #ft = np.abs(np.fft.rfft(y))
-    #if len(y) & 0x1:
-    #    end = (len(y)-1)/len(y)
-    #else:
-    #    end = 1
-    #logt = np.log(np.linspace(1, end*len(y)/2, len(ft)-1))
-    #ft = ft[101:]
-    #logt = logt[100:]
-    #dft = (ft[1:] - ft[:-1])/(logt[1:] - logt[:-1])    
-    #return np.sum(dft**2)
-
-#@jit(parallel=True)
-def diff_PD(data, alpha=0.5, L=1):
-    """tries to apply an optimum low-pass filter to the differentiated data.
-    works under the assumption that, since differentiating has a transfer function
-    G(s) = s, applying F(s) = 1/s will smooth out the magnified noise."""
-    t = data[0]
-    t -= t[0]
-    if np.average(t[1:]-t[:-1]) < 0.9:
-        t*=1000000
-    t = (t+0.4999).astype(int)
-    f = data[1]
-    dt = (t[1:] - t[:-1]) /(10**6)
-    u = (f[1:]-f[:-1])/dt
-    #u0 = np.average(u)
-    #mr = np.max(np.abs(u-u0))*2
-    #bounds = [(10**-6, 1 - 10**-6), (u0-mr, u0+mr)]
-    #bounds = [(0, 1), (0, 1), (None, 0)]
-    bounds = [(0.0001, None)]
-    params = np.array([alpha])
-    du = (u[1:] - u[:-1]) #/(dt[:-1])
-    
-    As = np.tril(np.ones((len(t)-3, len(t)-2)))
-    minim = op.minimize(PD_w, params, args=([f, u, du, dt, As, L]), bounds=bounds)
-    return minim
-    #prob = Problem(3, 2)
-    #prob.types[0:2] = Real(0, 1)
-    #prob.types[2] = Real(1, 10)
-    #prob.function = PD_w
-    #prob.fargs = (f, u, du, As, dt)
-    #algorithm = NSGAII(prob)
-    #algorithm.run(10000)
-    #return algorithm
-
-def plot_pd(data, alpha=0.5):
-    """plots the result of diff_PD()"""
-    t = data[0]
-    t -= t[0]
-    if np.average(t[1:]-t[:-1]) < 0.9:
-        t*=1000000
-    t = (t+0.4999).astype(int)
-    f = data[1]
-    dt = (t[1:] - t[:-1]) /(10**6)
-    u = (f[1:]-f[:-1])/dt
-    du = (u[1:] - u[:-1])/(dt[:-1])
-    y = np.zeros(len(du)+1)
-    y[0] = u[0]
-    del_u = u[1:]-u[:-1]
-    #for i in np.arange(0, len(du)):
-    #    y[i+1] = y[i] + del_u[i]*np.exp(-alpha*np.abs(du[i]))#*alpha
-    y[1:] = u[1:] + alpha*(1 - np.exp(-alpha*np.abs(du)))
-    plt.plot(t[:-1], y)
-
-def butt_2(data, cut1=0.1, cut2=0.05, order=1, plot=True, wend=0):
-    """finds the 2nd derivative of the data, and smooths with a butterworth filter"""
+def butt_2(cut1, cut2, data, order=1, plot=True, wend=0):
+    """finds the 2nd derivative of the data, and smooths with a butterworth filter.
+    20 and 20 are good first estimates for cut1 and cut2."""
     t = data[0]
     f = data[1]
-    dt = (t[1:] - t[:-1]) /(10**6)
-    #w = (f[1:]-f[:-1])/dt
-    #if wend is not None:
-    #    w = np.append(w, wend)
+    dt = (t[1:] - t[:-1])
+    if dt[0] > 0.9:
+        dt *= 1/(10**6)
+    else:
+        t *= 10**6
     w = butt(data, cut1, end=wend, plot=False)
     if plot is True:
         u = (f[1:] - f[:-1])/dt
@@ -314,17 +198,10 @@ def butt_2(data, cut1=0.1, cut2=0.05, order=1, plot=True, wend=0):
             u = np.append(u, wend)
         plt.plot(t[:len(u)], u)
         plt.plot(t[:len(w)], w)
-    #a = (w[1:] - w[:-1])/dt[:len(w)-1]
-    #init = np.average(a[:10])
-    #af = np.append(init*np.ones(10), w)
-    #b, a = signal.butter(order, cut, btype="low")
-    #filt = signal.filtfilt(b, a, af-init) + init
-    #filt = filt[10:]
     filt = butt([t[:len(w)], w], cut2, plot=plot)
-    #if plot is True:
-    #    plt.plot(t[:len(filt)], filt)
-    #else:
-    #    return filt
+    if plot is not True:
+        return filt
+
 
 def butt(data, cut, order=1, plot=True, end=None, opt=False):
     """finds the derivative of data, and smooths with a butterworth filter"""
@@ -337,6 +214,7 @@ def butt(data, cut, order=1, plot=True, end=None, opt=False):
     else:
         end = np.average(u[-10:])
     init = np.average(u[:10])
+    cut = 2*cut/len(u)
     if opt is True:
         init = op.minimize(butt_err, init, args=(u, cut, order))['x']
     uf = np.append(init*np.ones(10), u)
@@ -357,89 +235,3 @@ def butt_err(init, u, cut, order):
     filt = signal.filtfilt(b, a, uf-init) + init
     filt = filt[10:]
     return np.sum(np.abs(filt[:10]-u[:10]))
-
-# =============================================================================
-# @jit(parallel=True)
-# def butt_w(params, f, u, As, dt):
-#     """worker function for diff_butt()"""
-#     cut, init = params
-#     #b, a = signal.butter(1, cut, btype="low")
-#     #filt = signal.lfilter(b, a, u-init) + init
-#     du = (filt[1:] - filt[:-1])/(dt[:-1])
-#     A_w = (filt[1:] + filt[:-1])*dt[:-1]/2
-#     Au = np.dot(As, A_w)
-#     #Au = np.zeros(len(f)-1)
-#     #for i in range(len(Au)):
-#     #    Au[i] = np.sum(A_w[:i+1])
-#     #f = signal.lfilter(b, a, f-f[0]) + f[0]
-#     L2 = (Au - f[1:])**2
-#     return np.sum(np.abs(du)) + np.sum(L2)
-# 
-# @jit(parallel=True)
-# def diff_butt(data, cut0=10**-3):
-#     """tries to apply an optimum low-pass filter to the differentiated data.
-#     works under the assumption that, since differentiating has a transfer function
-#     G(s) = s, applying F(s) = 1/s will smooth out the magnified noise."""
-#     t = data[0]
-#     t -= t[0]
-#     if np.average(t[1:]-t[:-1]) < 0.9:
-#         t*=1000000
-#     t = (t+0.4999).astype(int)
-#     f = data[1]
-#     dt = (t[1:] - t[:-1]) #/(10**6)
-#     u_old = (f[1:11]-f[0:10])/dt[0:10]
-#     u_old = (f[1:]-f[:-1])/dt
-#     u0 = np.average(u_old)
-#     mr = np.max(np.abs(u_old-u0))*2
-#     bounds = [(10**-6, 1 - 10**-6), (u0-mr, u0+mr)]
-#     params = np.append(cut0, u0)
-#     
-#     t_new = np.arange(0, t[-1]+1)
-#     interp = interpolate.interp1d(t, f)
-#     dt_new = np.ones(len(t_new)-1) #/(10**6)
-#     f_new = interp(t_new)
-#     As = np.tril(np.ones((len(t_new)-1, len(t_new)-2)))
-#     #As=None
-#     u_new = (f_new[1:]-f_new[:-1])/dt_new
-#     minim = op.minimize(butt_w, params, args=(f_new, u_new, As, dt_new), bounds=bounds)
-#     return minim
-# =============================================================================
-
-# =============================================================================
-# @jit(parallel=True, nopython=True)
-# def tik_data_w(params, f):
-#     """worker function for tik_diff.
-#     params[0] should be alpha"""
-#     a = params[0]
-#     u = params[1:]
-#     du = u[1:] - u[:-1]
-#     A_w = u[1:] + u[:-1]
-#     Au = np.zeros(len(f)-1)
-#     for i in range(len(Au)):
-#         Au[i] = np.sum(A_w[:i+1])/2
-#     L2 = (Au - f[1:])**2
-#     return a*np.sum(np.abs(du)) + np.sum(L2)/2
-# 
-# @jit(parallel=True)
-# def tik_diff(data, a=0.5):
-#     """performs differentiation on the data using Tikhonov regularization.\n
-#     minimizing function comes from https://www.hindawi.com/journals/isrn/2011/164564/#B16"""
-#     t_old = data[0]
-#     t_old -= t_old[0]
-#     t_old = (t_old+0.4999).astype(int)
-#     if np.average(t_old[1:]-t_old[:-1]) < 0.9:
-#         t_old*=1000000
-#     th = data[1]
-#     t = np.arange(0, t_old[-1]+1)
-#     interp = interpolate.interp1d(t_old, th)
-#     f = interp(t) - th[0]
-#     u0 = f[1:] - f[:-1]
-#     params = np.append(a, u0)
-#     bounds = [(0, None)] + [(None, None)]*len(u0)
-#     minim = op.minimize(tik_data_w, params, args=(f), bounds=bounds)
-#     return minim
-# =============================================================================
-    
-    
-    
-    
