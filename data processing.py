@@ -11,6 +11,7 @@ from numba import jit
 import scipy.interpolate as interpolate
 import scipy.optimize as op
 from scipy import signal
+from platypus import NSGAII, Problem, Real
 
 #from mathing_the_data import *
 
@@ -215,23 +216,28 @@ def tik_diff(data, a=0.0005):
     return minim
 
 @jit(parallel=True)
-def butt_w(params, f, u, As, dt):
+def PD_w(params, args):#f, u, du, As, dt):
     """worker function for diff_butt()"""
-    cut, init = params
-    b, a = signal.butter(1, cut, btype="low")
-    filt = signal.lfilter(b, a, u-init) + init
-    du = (filt[1:] - filt[:-1])/(dt[:-1])
-    A_w = (filt[1:] + filt[:-1])*dt[:-1]/2
-    #Au = np.dot(As, A_w)
-    Au = np.zeros(len(f)-1)
-    for i in range(len(Au)):
-        Au[i] = np.sum(A_w[:i+1])
+    f, u, du, As, dt = args
+    P, D, alpha = params
+    #y = P*u[1:] - D*du
+    y = np.zeros(len(du))
+    y[0] = P*u[0]
+    #del_u = u[1:]-u[:-1]
+    for i in np.arange(1, len(du)):
+        y[i] = P*(y[i-1] + D*du[i])
+    A_w = (y[1:] + y[:-1])*dt[:-2]/2
+    Au = np.dot(As, A_w)
+    dy = (y[1:] - y[:-1])/(dt[:-2])
+    #Au = np.zeros(len(f)-1)
+    #for i in range(len(Au)):
+    #    Au[i] = np.sum(A_w[:i+1])
     f = signal.lfilter(b, a, f-f[0]) + f[0]
-    L2 = (Au - f[1:])**2
-    return np.sum(np.abs(du)) + np.sum(L2)
+    L2 = (Au - f[1:-1])**2
+    return [np.sum(np.abs(dy)**2)*alpha, np.sum(L2)]
 
 @jit(parallel=True)
-def diff_butt(data, cut0=10**-3):
+def diff_PD(data, P0=0.5, D0=0.5, alpha=0):
     """tries to apply an optimum low-pass filter to the differentiated data.
     works under the assumption that, since differentiating has a transfer function
     G(s) = s, applying F(s) = 1/s will smooth out the magnified noise."""
@@ -241,23 +247,92 @@ def diff_butt(data, cut0=10**-3):
         t*=1000000
     t = (t+0.4999).astype(int)
     f = data[1]
-    dt = (t[1:] - t[:-1]) #/(10**6)
-    u_old = (f[1:11]-f[0:10])/dt[0:10]
-    u_old = (f[1:]-f[:-1])/dt
-    u0 = np.average(u_old)
-    mr = np.max(np.abs(u_old-u0))*2
-    bounds = [(10**-6, 1 - 10**-6), (u0-mr, u0+mr)]
-    params = np.append(cut0, u0)
+    dt = (t[1:] - t[:-1]) /(10**6)
+    #u = (f[1:11]-f[0:10])/dt[0:10]
+    u = (f[1:]-f[:-1])/dt
+    #u0 = np.average(u)
+    #mr = np.max(np.abs(u-u0))*2
+    #bounds = [(10**-6, 1 - 10**-6), (u0-mr, u0+mr)]
+    bounds = [(0, 1), (0, 1), (0, 1)]
+    params = np.array([P0, D0, alpha])
+    du = (u[1:] - u[:-1]) #/(dt[:-1])
     
-    t_new = np.arange(0, t[-1]+1)
-    interp = interpolate.interp1d(t, f)
-    dt_new = np.ones(len(t_new)-1) #/(10**6)
-    f_new = interp(t_new)
-    #As = np.tril(np.ones((len(t_new)-1, len(t_new)-2)))
-    As=None
-    u_new = (f_new[1:]-f_new[:-1])/dt_new
-    minim = op.minimize(butt_w, params, args=(f_new, u_new, As, dt_new), bounds=bounds)
-    return minim
+    As = np.tril(np.ones((len(t)-2, len(t)-3)))
+    #minim = op.minimize(PD_w, params, args=(f, u, du, As, dt), bounds=bounds)
+    prob = Problem(3, 2)
+    prob.types[0:2] = Real(0, 1)
+    prob.types[2] = Real(1, 10)
+    prob.function = PD_w
+    prob.fargs = (f, u, du, As, dt)
+    algorithm = NSGAII(prob)
+    algorithm.run(10000)
+    return algorithm
+
+def plot_pd(data, P, D):
+    """plots the result of diff_PD()"""
+    t = data[0]
+    t -= t[0]
+    if np.average(t[1:]-t[:-1]) < 0.9:
+        t*=1000000
+    t = (t+0.4999).astype(int)
+    f = data[1]
+    dt = (t[1:] - t[:-1]) /(10**6)
+    u = (f[1:]-f[:-1])/dt
+    du = (u[1:] - u[:-1])#/(dt[:-1])
+    y = np.zeros(len(du))
+    y[0] = P*u[0]
+    #del_u = u[1:]-u[:-1]
+    for i in np.arange(1, len(du)):
+        y[i] = P*(y[i-1] + D*du[i])
+    plt.plot(t[:-2], y)
+    
+
+# =============================================================================
+# @jit(parallel=True)
+# def butt_w(params, f, u, As, dt):
+#     """worker function for diff_butt()"""
+#     cut, init = params
+#     #b, a = signal.butter(1, cut, btype="low")
+#     #filt = signal.lfilter(b, a, u-init) + init
+#     du = (filt[1:] - filt[:-1])/(dt[:-1])
+#     A_w = (filt[1:] + filt[:-1])*dt[:-1]/2
+#     Au = np.dot(As, A_w)
+#     #Au = np.zeros(len(f)-1)
+#     #for i in range(len(Au)):
+#     #    Au[i] = np.sum(A_w[:i+1])
+#     #f = signal.lfilter(b, a, f-f[0]) + f[0]
+#     L2 = (Au - f[1:])**2
+#     return np.sum(np.abs(du)) + np.sum(L2)
+# 
+# @jit(parallel=True)
+# def diff_butt(data, cut0=10**-3):
+#     """tries to apply an optimum low-pass filter to the differentiated data.
+#     works under the assumption that, since differentiating has a transfer function
+#     G(s) = s, applying F(s) = 1/s will smooth out the magnified noise."""
+#     t = data[0]
+#     t -= t[0]
+#     if np.average(t[1:]-t[:-1]) < 0.9:
+#         t*=1000000
+#     t = (t+0.4999).astype(int)
+#     f = data[1]
+#     dt = (t[1:] - t[:-1]) #/(10**6)
+#     u_old = (f[1:11]-f[0:10])/dt[0:10]
+#     u_old = (f[1:]-f[:-1])/dt
+#     u0 = np.average(u_old)
+#     mr = np.max(np.abs(u_old-u0))*2
+#     bounds = [(10**-6, 1 - 10**-6), (u0-mr, u0+mr)]
+#     params = np.append(cut0, u0)
+#     
+#     t_new = np.arange(0, t[-1]+1)
+#     interp = interpolate.interp1d(t, f)
+#     dt_new = np.ones(len(t_new)-1) #/(10**6)
+#     f_new = interp(t_new)
+#     As = np.tril(np.ones((len(t_new)-1, len(t_new)-2)))
+#     #As=None
+#     u_new = (f_new[1:]-f_new[:-1])/dt_new
+#     minim = op.minimize(butt_w, params, args=(f_new, u_new, As, dt_new), bounds=bounds)
+#     return minim
+# =============================================================================
 
 # =============================================================================
 # @jit(parallel=True, nopython=True)
