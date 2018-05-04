@@ -215,29 +215,40 @@ def tik_diff(data, a=0.0005):
     minim = op.minimize(tik_data_w, params, args=(f, dt, As), bounds=bounds, options={'maxiter': 10**6, 'maxfun': 10**6})
     return minim
 
-@jit(parallel=True)
+#@jit(parallel=True)
 def PD_w(params, args):#f, u, du, As, dt):
     """worker function for diff_butt()"""
-    f, u, du, As, dt = args
-    P, D, alpha = params
+    f, u, du, dt, As, L = args
+    alpha = params
+    alpha *= 10**-6
     #y = P*u[1:] - D*du
-    y = np.zeros(len(du))
-    y[0] = P*u[0]
-    #del_u = u[1:]-u[:-1]
-    for i in np.arange(1, len(du)):
-        y[i] = P*(y[i-1] + D*du[i])
-    A_w = (y[1:] + y[:-1])*dt[:-2]/2
+    y = np.zeros(len(du)+1)
+    y[0] = u[0]
+    del_u = du
+    du = du/dt[:-1]
+    for i in np.arange(0, len(du)):
+        y[i+1] = y[i] + del_u[i]*np.exp(-alpha*du[i])#/alpha
+    A_w = (y[1:] + y[:-1])*dt[:-1]/2
     Au = np.dot(As, A_w)
-    dy = (y[1:] - y[:-1])/(dt[:-2])
-    #Au = np.zeros(len(f)-1)
-    #for i in range(len(Au)):
-    #    Au[i] = np.sum(A_w[:i+1])
-    f = signal.lfilter(b, a, f-f[0]) + f[0]
-    L2 = (Au - f[1:-1])**2
-    return [np.sum(np.abs(dy)**2)*alpha, np.sum(L2)]
+    dy = (y[1:] - y[:-1])/(dt[:-1])
+    Au = np.zeros(len(f)-1)
+    for i in range(len(Au)):
+        Au[i] = np.sum(A_w[:i+1])
+    L2 = (Au - f[1:])**2
+    return L*np.sum(dy**2) + np.sum(L2)
+    #ft = np.abs(np.fft.rfft(y))
+    #if len(y) & 0x1:
+    #    end = (len(y)-1)/len(y)
+    #else:
+    #    end = 1
+    #logt = np.log(np.linspace(1, end*len(y)/2, len(ft)-1))
+    #ft = ft[101:]
+    #logt = logt[100:]
+    #dft = (ft[1:] - ft[:-1])/(logt[1:] - logt[:-1])    
+    #return np.sum(dft**2)
 
-@jit(parallel=True)
-def diff_PD(data, P0=0.5, D0=0.5, alpha=0):
+#@jit(parallel=True)
+def diff_PD(data, alpha=0.5, L=1):
     """tries to apply an optimum low-pass filter to the differentiated data.
     works under the assumption that, since differentiating has a transfer function
     G(s) = s, applying F(s) = 1/s will smooth out the magnified noise."""
@@ -248,27 +259,28 @@ def diff_PD(data, P0=0.5, D0=0.5, alpha=0):
     t = (t+0.4999).astype(int)
     f = data[1]
     dt = (t[1:] - t[:-1]) /(10**6)
-    #u = (f[1:11]-f[0:10])/dt[0:10]
     u = (f[1:]-f[:-1])/dt
     #u0 = np.average(u)
     #mr = np.max(np.abs(u-u0))*2
     #bounds = [(10**-6, 1 - 10**-6), (u0-mr, u0+mr)]
-    bounds = [(0, 1), (0, 1), (0, 1)]
-    params = np.array([P0, D0, alpha])
+    #bounds = [(0, 1), (0, 1), (None, 0)]
+    bounds = [(0.0001, None)]
+    params = np.array([alpha])
     du = (u[1:] - u[:-1]) #/(dt[:-1])
     
-    As = np.tril(np.ones((len(t)-2, len(t)-3)))
-    #minim = op.minimize(PD_w, params, args=(f, u, du, As, dt), bounds=bounds)
-    prob = Problem(3, 2)
-    prob.types[0:2] = Real(0, 1)
-    prob.types[2] = Real(1, 10)
-    prob.function = PD_w
-    prob.fargs = (f, u, du, As, dt)
-    algorithm = NSGAII(prob)
-    algorithm.run(10000)
-    return algorithm
+    As = np.tril(np.ones((len(t)-3, len(t)-2)))
+    minim = op.minimize(PD_w, params, args=([f, u, du, dt, As, L]), bounds=bounds)
+    return minim
+    #prob = Problem(3, 2)
+    #prob.types[0:2] = Real(0, 1)
+    #prob.types[2] = Real(1, 10)
+    #prob.function = PD_w
+    #prob.fargs = (f, u, du, As, dt)
+    #algorithm = NSGAII(prob)
+    #algorithm.run(10000)
+    #return algorithm
 
-def plot_pd(data, P, D):
+def plot_pd(data, alpha=0.5):
     """plots the result of diff_PD()"""
     t = data[0]
     t -= t[0]
@@ -278,14 +290,73 @@ def plot_pd(data, P, D):
     f = data[1]
     dt = (t[1:] - t[:-1]) /(10**6)
     u = (f[1:]-f[:-1])/dt
-    du = (u[1:] - u[:-1])#/(dt[:-1])
-    y = np.zeros(len(du))
-    y[0] = P*u[0]
-    #del_u = u[1:]-u[:-1]
-    for i in np.arange(1, len(du)):
-        y[i] = P*(y[i-1] + D*du[i])
-    plt.plot(t[:-2], y)
-    
+    du = (u[1:] - u[:-1])/(dt[:-1])
+    y = np.zeros(len(du)+1)
+    y[0] = u[0]
+    del_u = u[1:]-u[:-1]
+    #for i in np.arange(0, len(du)):
+    #    y[i+1] = y[i] + del_u[i]*np.exp(-alpha*np.abs(du[i]))#*alpha
+    y[1:] = u[1:] + alpha*(1 - np.exp(-alpha*np.abs(du)))
+    plt.plot(t[:-1], y)
+
+def butt_2(data, cut1=0.1, cut2=0.05, order=1, plot=True, wend=0):
+    """finds the 2nd derivative of the data, and smooths with a butterworth filter"""
+    t = data[0]
+    f = data[1]
+    dt = (t[1:] - t[:-1]) /(10**6)
+    #w = (f[1:]-f[:-1])/dt
+    #if wend is not None:
+    #    w = np.append(w, wend)
+    w = butt(data, cut1, end=wend, plot=False)
+    if plot is True:
+        u = (f[1:] - f[:-1])/dt
+        if wend is not None:
+            u = np.append(u, wend)
+        plt.plot(t[:len(u)], u)
+        plt.plot(t[:len(w)], w)
+    #a = (w[1:] - w[:-1])/dt[:len(w)-1]
+    #init = np.average(a[:10])
+    #af = np.append(init*np.ones(10), w)
+    #b, a = signal.butter(order, cut, btype="low")
+    #filt = signal.filtfilt(b, a, af-init) + init
+    #filt = filt[10:]
+    filt = butt([t[:len(w)], w], cut2, plot=plot)
+    #if plot is True:
+    #    plt.plot(t[:len(filt)], filt)
+    #else:
+    #    return filt
+
+def butt(data, cut, order=1, plot=True, end=None, opt=False):
+    """finds the derivative of data, and smooths with a butterworth filter"""
+    t = data[0]
+    f = data[1]
+    dt = (t[1:] - t[:-1]) /(10**6)
+    u = (f[1:]-f[:-1])/dt
+    if end is not None:
+        u = np.append(u, end)
+    else:
+        end = np.average(u[-10:])
+    init = np.average(u[:10])
+    if opt is True:
+        init = op.minimize(butt_err, init, args=(u, cut, order))['x']
+    uf = np.append(init*np.ones(10), u)
+    uf = np.append(uf, end*np.ones(10))
+    b, a = signal.butter(order, cut, btype="low")
+    filt = signal.filtfilt(b, a, uf-init) + init
+    filt = filt[10:-10]
+    if plot is True:
+        plt.plot(t[:len(filt)], filt)
+    else:
+        return filt
+
+def butt_err(init, u, cut, order):
+    """worker function for butt(). finds the error between the filtered and 
+    unfiltered data"""
+    b, a = signal.butter(order, cut, btype="low")
+    uf = np.append(init*np.ones(10), u)
+    filt = signal.filtfilt(b, a, uf-init) + init
+    filt = filt[10:]
+    return np.sum(np.abs(filt[:10]-u[:10]))
 
 # =============================================================================
 # @jit(parallel=True)
