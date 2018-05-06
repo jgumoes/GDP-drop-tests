@@ -17,143 +17,6 @@ from scipy import signal
 path=r"C:\Users\Jack\Documents\Uni\GDP\Drop Tests" + "\\"
 file = r"C:\Users\Jack\Documents\Uni\GDP\Drop Tests\0\0.npy"
 
-#J_A = None
-#print(raw_data(path+"free spinning.txt"))
-
-# =============================================================================
-# from sympy import *
-# init_printing(use_unicode=True)
-# mu1, mu2, mu3, mu4, mu5, n, j, m, t = symbols("mu1, mu2, mu3, mu4, mu5, n, j, m, t")
-# o = Function("theta")
-# w = Function("omega")
-# a = diff(w(t), t)
-# Tf = mu1*m*w(t) + mu2*w(t) + mu3*(w(t)**n) + mu4 + mu5*m
-# omega = lambdify((mu1, mu2, mu3, mu4, mu5, n, j, m, t), dsolve(Eq(-Tf.subs(n, 0)/j, a)))
-# =============================================================================
-
-def solve_theta(t, mu1, mu2, mu4, mu5, j, m, w0):
-    """analytical solution for theta, assuming mu3 is 0.\n
-    function is not reveresed"""
-    k1 = mu1*m + mu2
-    k2 = mu4 + mu5*m
-    c2 = j*(w0 + k2/k1)/k1
-    return -k2*t/k1 -c2*np.exp(-k1*t/j) + c2
-
-def accel_free(t, w, k1, k2, mu3, n, j, m):
-    """The equation for the acceleration of the free-spinning wheel"""
-    Tf = k1*w + mu3*(w**n) + k2
-    return -Tf/j
-
-def theta_free(t, k1, k2, j, w0):
-    """analytical solution for theta, assuming mu3 is 0.\n
-    the constants make it suitable for the free spinning data.\n
-    function is not reveresed."""
-    c2 = j*(w0 + k2/k1)/k1
-    return -k2*t/k1 -c2*np.exp(-k1*t/j) + c2
-
-def opt_theta_free(params, t, th, j, w0):
-    """The lmfit model for theta_free"""
-    k1 = params['k1']
-    k2 = params['k2']
-    #m = make_m(0, 0)
-    model = theta_free(t, k1, k2, j, w0)
-    return np.abs(model**2 - th**2)
-
-def fit_theta_free(data):
-    """Fits the curve for theta_free. Data should be the times and angles"""
-    t = data[0]
-    th = data[1]
-    w0 = (th[1]-th[0])/(t[1]-t[0])
-    params = lm.Parameters()
-    params.add("k1", value = 0.5, min=0)
-    params.add("k2", value = 0.5, min=0)
-    J_A = make_ja()
-    minner = lm.Minimizer(opt_theta_free, params, fcn_args=(t, th, J_A, w0))
-    return minner.minimize()
-    
-    
-
-# =============================================================================
-# def fit(data, m=None, func=solve_theta):
-#     """fit the data to curve. j, w0 and m should be and the end of the paramaters"""
-#     curve = lm.Model(theta_free)
-#     params = curve.make_params()
-#     global J_A
-#     if J_A is None:
-#         J_A = make_ja()
-#     params["j"].set(min=J_A, max=J_A)
-#     params["m"].set(min=m, max=m)
-#     params["w0"].set(min=data[1][0], max=data[1][0])
-#     for p in curve.param_names[:-3]:
-#         params[p].set(value=0.5, min=0)
-#     minim = lm.Minimizer(curve, params, fcn_args=(curve.independent_vars))
-#     res = minim.minimize()
-#     return res
-# =============================================================================
-    
-
-@jit
-def solve_w(t, k1, k2, mu3, n, j, m, w0=0, res=10, plot=False):
-    """differentiates the acceleration equation to find w(t).\n
-    uses euler's method to sub-microsecond precision (1us/res).\n
-    res is the number of points between each microsecond"""
-    times = t
-    times -= times[0]
-    if times[1]<1:
-        times*=10**6
-    times_out = np.linspace(times[0], times[-1], int((times[-1]-times[0])*res))
-    w_out = np.zeros(len(times_out))
-    w_out[0] = w0
-    ind = 0
-    delta=1/res
-    while ind < len(w_out)-1:
-        time = times_out[ind]
-        w_out[ind+1] = w_out[ind] + delta*accel_free(time, w_out[ind], k1, k2, mu3, n, j, m)
-        ind+=1
-        #if (ind>100000) and (ind%100000 == 0):
-        #    print(ind)
-    np.save(np.array(times_out, w_out), "w, euler forwards, res=%d" % res)
-    if plot is True:
-        plt.plot(times_out, w_out)
-        
-def make_th_simple(t, k1, k2, mu3, n, j, m, w0=0, res=100):
-    """finds theta by taking the second derivative of negative acceleration 
-    using eulers method. uses constant-mass simplification for the long 
-    free-spinning tests.\n
-    t should be in microseconds"""
-    times = np.append(0, np.linspace(0, t, t*res))
-    thetas = np.zeros(t*res + 1)
-    p = 0
-    #while p<
-    
-    
-
-def find_w(t, a, end=False, plot=False):
-    """finds the angular velocity.\n
-    if end is given, it adds end to the end of the data i.e. end=0 for the 
-    free spinning data"""
-    w = (a[1:]-a[:-1])/(t[1:]-t[:-1])
-    if end is False:
-        t = t[:-1]
-    else:
-        w = np.append(w, end)
-    if plot is True:
-        plt.plot(t, w)
-    return t, w
-
-def invert(t, w, plot=False):
-    """inverts the data to make it backwards. useful for optimising the
-    free spinning data against euler's method.\n
-    the time inversion conserves the interval spacing, so the change in angle
-    is valid."""
-    #c = np.median(w)
-    w_inv = w #2*c - w
-    ct = np.median(t)
-    times = ct*2 - t
-    times -= min(times)
-    if plot is True:
-        plt.plot(times, w_inv)
-    return times, w_inv
 
 @jit(cache=True)
 def make_m(weight=0, accel=0):
@@ -192,15 +55,26 @@ def a_free(k1, k2, u2, u3, u4, m, w):
 
 @jit(cache=True)
 def opt_free(params, files, p=False):
-    k1, k2, u2, u3, u4, cut1, cut2 = params
+    """returns the sum of the average errors between the model and actual acceleration.\n
+    using the average error of each run removes the bias towards longer runs.\n
+    if p is true, it will plot all runs, not just the optimised one! use with caution.\n
+    the cuttoff frequency should be the same for each derivative stage. optimising 
+    them independantly will give us feedback as to if it's working (i.e. if 
+    cut1 = cut2, it's behaving well).\n
+    However: the cutoff isn't the same for each data run, and setting them the
+    same gave bad results, so 2 cut-off frequencies need to be given for each data file"""
+    k1, k2, u2, u3, u4 = params[:5]
+    cuts = params[5:]
+    c = 0
     err = 0
     m = make_m()
     for i in files:
         data = np.load(i)
         data[1] *= 2*np.pi/360
-        w, a = butt_2(cut1, cut2, data, wend=0, plot=False)
+        w, a = butt_2(cuts[c], cuts[c+1], data, wend=0, plot=False)
         am = a_free(k1, k2, u2, u3, u4, m, w)
         err += np.average((am[:-1]-a)**2)
+        c+=2
         if p is True:
             plt.plot(data[0][:len(a)], a)
             plt.plot(data[0][:len(am)], am)
@@ -217,16 +91,19 @@ def a_mass(k1, k2, u2, u3, u4, weight, w, a):
 
 @jit(cache=True)
 def opt_mass(params, files, p=False):
-    k1, k2, u2, u3, u4, cut1, cut2 = params
+    k1, k2, u2, u3, u4 = params[:5]
+    cuts = params[5:]
+    c = 0
     err = 0
     for i in files:
         data = np.load(i)
         data[1] *= 2*np.pi/360
-        Ts = 10**-6
+        Ts = 10**-3
         if data[0][1] >= 0.9:
             Ts *= 10**6
         data = resample(data, Ts)
-        w, a = butt_2(cut1, cut2, data, wend=None, plot=False)
+        w, a = butt_2(cuts[c], cuts[c+1], data, wend=None, plot=False)
+        c+=2
         weight = int(i.split("\\")[-2])/1000
         am = a_mass(k1, k2, u2, u3, u4, weight, w, a)
         err += np.average((am-a)**2)
@@ -236,22 +113,69 @@ def opt_mass(params, files, p=False):
     return err
 
 @jit(cache=True)
-def opt_all_w(params):
-    k1, k2, u2, u3, u4, cut1, cut2, cut3, cut4 = params
-    f_files = ['C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\14.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\15.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\16.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\17.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\18.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\0.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\1.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\2.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\3.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\4.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\5.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\6.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\7.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\8.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\9.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\10.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\11.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\12.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\13.npy']
-    m_files = ['C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\575\\2.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\575\\0.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\575\\1.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\1100\\2.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\1100\\0.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\1100\\1.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\1667\\0.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\1667\\1.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\1667\\2.npy']
-    f_params = [k1, k2, u2, u3, u4, cut1, cut2]
-    m_params = [k1, k2, u2, u3, u4, cut3, cut4]
+def opt_all_w(params, f_files, m_files):
+    #k1, k2, u2, u3, u4 = params[5:]
+    #print(type(params))
+    f_params = params[:5+len(f_files)*2]
+    m_params = np.append(params[:5], params[5+len(f_files)*2:])
     err = opt_free(f_params, f_files) + opt_mass(m_params, m_files)
     return err
 
 @jit(parallel=True)
 def opt_all():
     """performs optimisations on all the files"""
-    params = [1, 1, 1, 1, 1, 20, 20, 20, 20]
-    bounds = [(1e-06, None), (0, None), (0, None), (0, None), (0, None), (1, 30), (1, 30), (1, 30), (1, 30)]
-    res = op.minimize(opt_all_w, params, bounds=bounds, tol=10**-11)
+    f_files = ['C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\14.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\15.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\16.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\17.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\18.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\0.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\1.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\2.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\3.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\4.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\5.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\6.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\7.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\8.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\9.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\10.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\11.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\12.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\13.npy']
+    m_files = ['C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\575\\2.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\575\\0.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\575\\1.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\1100\\2.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\1100\\0.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\1100\\1.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\1667\\0.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\1667\\1.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\1667\\2.npy']
+    params = [1, 1, 1, 1, 1]
+    bounds = [(1e-12, None), (0, None), (0, None), (0, None), (0, None)]
+    for i in f_files:
+        params += [20, 20]
+        bounds += [(1, 30), (1, 30)]
+    for i in m_files:
+        params += [20, 20]
+        bounds += [(1, 30), (1, 30)]
+    res = op.minimize(opt_all_w, params, args=(f_files, m_files), bounds=bounds, tol=10**-11)
     return res
+
+@jit(cache=True)
+def m_seq_worker(params, const, k1, k2, u2, files):
+    u3 = params[0]
+    u4 = (const-u3)/make_m()
+    m_params = np.append([k1, k2, u2, u3, u4], params[1:])
+    return opt_mass(m_params, files, False)
+
+@jit(cache=True)
+def f_seq_worker(params, files):
+    k1, k2, u2, const = params[:4]
+    f_params = np.append([k1, k2, u2, const, 0], params[4:])
+    return opt_free(f_params, files, False)
+
+def opt_all_seq():
+    """performs optimisations on all the files. does the free spinning first,
+    then uses the results as constraints for the mass runs. should be much
+    faster than trying to optimize all the variables at once. Note that this
+    carries the  implicit assumption that the free spinning tests gave "better"
+    results, which, given that those tests were longer and had less sudden events,
+    they should have better results. We do still need the drop tests for the mass
+    dependancy, though"""
+    f_files = ['C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\14.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\15.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\16.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\17.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\18.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\0.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\1.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\2.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\3.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\4.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\5.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\6.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\7.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\8.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\9.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\10.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\11.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\12.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\0\\13.npy']
+    m_files = ['C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\575\\2.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\575\\0.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\575\\1.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\1100\\2.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\1100\\0.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\1100\\1.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\1667\\0.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\1667\\1.npy', 'C:\\Users\\Jack\\Documents\\Uni\\GDP\\Drop Tests\\1667\\2.npy']
+    f_params = [1, 1, 1, 1]
+    f_bounds = [(1e-12, None), (0, None), (0, None), (0, None)]
+    for i in f_files:
+        f_params += [20, 20]
+        f_bounds += [(1, 30), (1, 30)]
+    res1 = op.minimize(f_seq_worker, f_params, args=(f_files), bounds=f_bounds, tol=10**-11)
+    
+    k1, k2, u2, const = res1['x'][:4]
+    #const = u3 + u4*make_m()
+    m_params = [const/2]
+    m_bounds = [(0, const)]
+    for i in m_files:
+        m_params += [20, 20]
+        m_bounds += [(1, 30), (1, 30)]
+    res2 = op.minimize(m_seq_worker, m_params, args=(const, k1, k2, u2, m_files), bounds=m_bounds, tol=10**-11)
+    return res1, res2
 
 @jit(cache=True)
 def resample(data, Ts=None):
@@ -328,6 +252,24 @@ def butt_err(init, u, cut, order):
     filt = filt[10:]
     return np.sum(np.abs(filt[:10]-u[:10]))
 
+def plot_f(params, files):
+    """plots the results of the free spinning tests only"""
+    k1, k2, u2, u3, u4 = params[:5]
+    cuts = params[5:]
+    c = 0
+    for i in files:
+        data = np.load(i)
+        data[1] *= 2*np.pi/360
+        Ts = 10**-6
+        if data[0][1] >= 0.9:
+            Ts *= 10**6
+        w, a = butt_2(cuts[c], cuts[c+1], data, wend=None, plot=False)
+        m = make_m()
+        am = a_free(k1, k2, u2, u3, u4, m, w)
+        c+=2
+        plt.plot(data[0][:len(a)], a)
+        plt.plot(data[0][:len(am)], am)
+
 def plot_res(params, files):
     k1, k2, u2, u3, u4, cut1, cut2 = params
     for i in files:
@@ -340,6 +282,10 @@ def plot_res(params, files):
         if weight != 0:
             data = resample(data, Ts)
         w, a = butt_2(cut1, cut2, data, wend=None, plot=False)
-        am = a_mass(k1, k2, u2, u3, u4, weight, w, a)
+        if weight == 0:
+            am = a_mass(k1, k2, u2, u3, u4, weight, w, a)
+        else:
+            m = make_m()
+            am = a_free(k1, k2, u2, u3, u4, m, w)
         plt.plot(data[0][:len(a)], a)
         plt.plot(data[0][:len(am)], am)
