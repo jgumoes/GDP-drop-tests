@@ -165,7 +165,13 @@ def combine_three(data, D1, D2, sav=[13, 2], p=False, alpha=True, filt=False):
 def interp(dataset, alpha=True, W=True, p=False):
     """combines the sensor data through interpolation\n
     dataset should be a list of numpy arrays, where each array has the form 
-    [[times], [angles]]"""
+    [[times], [angles]].\n
+    also can function as a pre-differentiation filter: thanks to the laplace 
+    transform, differentiating has the transfer function G(s) = s, thereby acting
+    as a high-pass filter. High-frequency noise is magnified by differentiation.
+    By interpolating, the number of samples increases, effectively decreasing
+    the digital frequency of data without changing its shape at all. because the 
+    noise frequency is lowered, it's gain is also lowered."""
     if type(dataset[0]) is tuple:
         dataset = dataset[0]
     n = len(dataset)
